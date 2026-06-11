@@ -12,14 +12,6 @@ dist
 dist-ssr
 *.local
 
-# Variables de entorno y secretos
-.env
-.env.*
-!.env.example
-
-# Datos generados por la app (la narrativa del usuario, puede pesar mucho)
-projectData.json
-
 # Editor directories and files
 .vscode/*
 !.vscode/extensions.json
