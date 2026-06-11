@@ -12,6 +12,19 @@ dist
 dist-ssr
 *.local
 
+# Variables de entorno y secretos
+.env
+.env.*
+!.env.example
+
+# Datos generados por la app (narrativa del usuario, ~20MB con imagenes base64)
+projectData.json
+
+# Lanzadores y config locales (se mantienen solo en tu disco)
+iniciar-tejedora.bat
+iniciar.bat
+claude_desktop_config.json
+
 # Editor directories and files
 .vscode/*
 !.vscode/extensions.json
