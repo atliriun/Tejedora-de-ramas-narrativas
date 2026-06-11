@@ -1,0 +1,40 @@
+{
+  "name": "copy-of-tejedora-de-ramas-narrativas-v.1.7.9.0",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "scripts": {
+    "dev": "tsx server.ts",
+    "build": "vite build",
+    "preview": "vite preview",
+    "lint": "tsc --noEmit && eslint .",
+    "start": "tsx server.ts"
+  },
+  "dependencies": {
+    "@google/genai": "^1.22.0",
+    "@modelcontextprotocol/sdk": "^1.29.0",
+    "@types/cors": "^2.8.19",
+    "cors": "^2.8.6",
+    "d3": "^7.9.0",
+    "d3-hierarchy": "^3.1.2",
+    "express": "^5.2.1",
+    "fast-json-patch": "^3.1.1",
+    "firebase": "^12.12.0",
+    "idb-keyval": "^6.2.2",
+    "react": "^19.2.0",
+    "react-dom": "^19.2.0",
+    "tsx": "^4.21.0",
+    "zod": "^4.4.3"
+  },
+  "devDependencies": {
+    "@firebase/eslint-plugin-security-rules": "^0.0.2",
+    "@tailwindcss/vite": "^4.2.1",
+    "@types/express": "^5.0.6",
+    "@types/node": "^22.14.0",
+    "@vitejs/plugin-react": "^5.0.0",
+    "eslint": "^10.2.1",
+    "tailwindcss": "^4.2.1",
+    "typescript": "~5.8.2",
+    "vite": "^6.2.0"
+  }
+}

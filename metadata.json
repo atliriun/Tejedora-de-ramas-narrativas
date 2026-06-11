@@ -1,0 +1,6 @@
+{
+  "name": "Tejedora de ramas narrativas V.1.8.6.0",
+  "description": "Refinamiento de la funcionalidad de chat de IA (Director Mode) con soporte completo para herramientas (tools), regeneración de respuestas, manejo robusto de errores de cuota y consistencia en la generación de UUIDs.",
+  "requestFramePermissions": [],
+  "majorCapabilities": []
+}

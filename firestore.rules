@@ -1,0 +1,80 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    function isValidId(id) {
+      return id is string && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+    
+    function incoming() { return request.resource.data; }
+    function existing() { return resource.data; }
+    function isSignedIn() { return request.auth != null && request.auth.token.email_verified == true; }
+    
+    function isOwner(resourceData) {
+       return request.auth.uid == resourceData.ownerId;
+    }
+    
+    function isEditor(resourceData) {
+       return ('editors' in resourceData) && (request.auth.uid in resourceData.editors);
+    }
+    
+    function isViewer(resourceData) {
+       return ('viewers' in resourceData) && (request.auth.uid in resourceData.viewers);
+    }
+    
+    // Strict schema check
+    function isValidProject(data) {
+      return data.keys().hasAll(['name', 'ownerId', 'data', 'updatedAt', 'editors', 'viewers', 'updatedBy']) &&
+             data.keys().size() == 7 &&
+             data.name is string && data.name.size() > 0 && data.name.size() < 100 &&
+             data.ownerId is string && data.ownerId == request.auth.uid &&
+             data.data is string && data.data.size() < 1000000 &&
+             data.updatedAt is timestamp &&
+             data.editors is list && data.editors.size() <= 100 &&
+             data.viewers is list && data.viewers.size() <= 100 &&
+             data.updatedBy is string && data.updatedBy == request.auth.uid;
+    }
+
+    match /projects/{projectId} {
+      // READ: Can read if owner, editor, or viewer.
+      allow get: if isSignedIn() && isValidId(projectId) && 
+                    (isOwner(resource.data) || isEditor(resource.data) || isViewer(resource.data));
+                    
+      // LIST: Client MUST query using `where('ownerId', '==', uid)` or array-contains for editors/viewers.
+      allow list: if isSignedIn() && (
+        resource.data.ownerId == request.auth.uid ||
+        request.auth.uid in resource.data.editors ||
+        request.auth.uid in resource.data.viewers
+      );
+      
+      // CREATE: Strict keys and sizes
+      allow create: if isSignedIn() && 
+                       isValidId(projectId) &&
+                       isValidProject(incoming()) &&
+                       incoming().updatedAt == request.time;
+                       
+      // UPDATE: Split by actions.
+      allow update: if isSignedIn() &&
+                       isValidId(projectId) &&
+                       isValidProject(incoming()) &&
+                       incoming().updatedAt == request.time &&
+                       // Immutability Check: Can't change ownerId
+                       incoming().ownerId == existing().ownerId &&
+                       (
+                         // Action 1: Owner updates metadata/data & roles
+                         (isOwner(existing()) &&
+                          incoming().diff(existing()).affectedKeys().hasOnly(['name', 'data', 'updatedAt', 'updatedBy', 'editors', 'viewers'])) ||
+                          
+                         // Action 2: Editor updates just content data
+                         (isEditor(existing()) &&
+                          incoming().diff(existing()).affectedKeys().hasOnly(['name', 'data', 'updatedAt', 'updatedBy']))
+                       );
+                       
+      // DELETE: Only owner
+      allow delete: if isSignedIn() && isValidId(projectId) && isOwner(resource.data);
+    }
+  }
+}
