@@ -17,6 +17,7 @@ import { useKeyboardShortcuts } from './useKeyboardShortcuts';
 import { HierarchyPointNode } from 'd3-hierarchy';
 import { compileStoryScript, compileDeepStoryProfile, getEffectiveNodeContext, resolveCharacterStateSnapshots } from '../utils/storyUtils';
 import { useCollaboration } from './useCollaboration';
+import { useClaudeInbox } from './useClaudeInbox';
 
 export const useAppOrchestrator = () => {
     // --- 1. CORE STATE & SETTINGS ---
@@ -73,6 +74,9 @@ export const useAppOrchestrator = () => {
     const effectiveProjectData = projectData || initialProjectData;
     
     usePersistence(effectiveProjectData, isLoaded);
+
+    // Aplica en vivo lo que Claude Desktop escribe via MCP (modo director, escenas, expedientes)
+    useClaudeInbox(setProjectData, isLoaded);
 
     // --- COLLABORATION ---
     const handleRemoteUpdate = useCallback((data: ProjectData, name: string) => {

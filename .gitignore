@@ -19,6 +19,7 @@ dist-ssr
 
 # Datos generados por la app (narrativa del usuario, ~20MB con imagenes base64)
 projectData.json
+claudeInbox.json
 
 # Lanzadores y config locales (se mantienen solo en tu disco)
 iniciar-tejedora.bat

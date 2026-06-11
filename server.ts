@@ -118,6 +118,41 @@ const noData = {
   ],
 };
 
+// --- Bandeja de entrada de Claude (escritura) ----------------------------------
+// Claude (via MCP) deja aqui "ordenes" de escritura. La app web la consulta cada
+// pocos segundos, aplica los cambios a su estado React (que es la fuente de
+// verdad) y confirma (ack). Asi Claude nunca pisa el guardado de la app.
+const INBOX_PATH = () => path.join(process.cwd(), "claudeInbox.json");
+
+interface InboxItem {
+  id: string;
+  type: "respuesta_director" | "nueva_escena" | "expediente_arco";
+  payload: Record<string, any>;
+  createdAt: number;
+}
+
+async function readInbox(): Promise<InboxItem[]> {
+  try {
+    const raw = await fs.readFile(INBOX_PATH(), "utf8");
+    const parsed = JSON.parse(raw);
+    return Array.isArray(parsed.items) ? parsed.items : [];
+  } catch {
+    return [];
+  }
+}
+
+async function writeInbox(items: InboxItem[]): Promise<void> {
+  await fs.writeFile(INBOX_PATH(), JSON.stringify({ items }, null, 2));
+}
+
+async function queueInboxItem(type: InboxItem["type"], payload: Record<string, any>): Promise<string> {
+  const items = await readInbox();
+  const id = `cin_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+  items.push({ id, type, payload, createdAt: Date.now() });
+  await writeInbox(items);
+  return id;
+}
+
 const textResult = (text: string) => ({ content: [{ type: "text" as const, text }] });
 
 // --- Fabrica del servidor MCP ------------------------------------------------
@@ -286,6 +321,108 @@ function createMcpServer(): McpServer {
     }
   );
 
+  // ============ HERRAMIENTAS DE ESCRITURA (via bandeja de entrada) ============
+  // Estas herramientas NO modifican projectData.json directamente (la app web es
+  // la fuente de verdad y lo sobreescribiria). Encolan el cambio en una bandeja
+  // que la app aplica en vivo. La app debe estar ABIERTA para que se apliquen.
+
+  // 6) RESPONDER EN MODO DIRECTOR: el corazon del flujo con la suscripcion.
+  mcp.tool(
+    "responder_modo_director",
+    "Envia tu respuesta como Director Narrativo al chat del modo director de una escena (nodo) de la app. La respuesta aparece en vivo en la app si esta abierta. Usa get_story_overview / get_scene primero para conocer el contexto y el nodeId correcto. Escribe la respuesta completa y en espanol, con el estilo narrativo del proyecto.",
+    {
+      nodeId: z.string().describe("El id del nodo/escena donde responder (sale de get_story_overview o buscar)."),
+      texto: z.string().min(1).describe("Tu respuesta completa como director narrativo."),
+    },
+    async ({ nodeId, texto }) => {
+      const d = await loadData();
+      if (!d) return noData;
+      const node = findNode(d.storyArcs || [], nodeId);
+      if (!node) return textResult(`No existe ningun nodo con id "${nodeId}". Usa get_story_overview para ver los ids validos.`);
+      await queueInboxItem("respuesta_director", { nodeId, texto });
+      return textResult(
+        `Respuesta encolada para la escena "${clamp(node.name, 60)}". Aparecera en el chat del modo director de la app en unos segundos (la app debe estar abierta en el navegador).`
+      );
+    }
+  );
+
+  // 7) CREAR ESCENA: anade un nodo hijo con la prosa generada.
+  mcp.tool(
+    "crear_escena",
+    "Crea una NUEVA escena (nodo hijo) bajo una escena existente, con el texto narrativo que tu generes. En esta app el texto de la escena vive en el nombre del nodo. Usala cuando el usuario te pida continuar la historia con una escena nueva.",
+    {
+      parentNodeId: z.string().describe("El id del nodo padre bajo el que se crea la escena."),
+      texto: z.string().min(1).describe("El texto narrativo completo de la nueva escena."),
+    },
+    async ({ parentNodeId, texto }) => {
+      const d = await loadData();
+      if (!d) return noData;
+      const parent = findNode(d.storyArcs || [], parentNodeId);
+      if (!parent) return textResult(`No existe ningun nodo con id "${parentNodeId}".`);
+      await queueInboxItem("nueva_escena", { parentNodeId, texto });
+      return textResult(
+        `Nueva escena encolada bajo "${clamp(parent.name, 60)}". Aparecera en el arbol de la app en unos segundos (la app debe estar abierta).`
+      );
+    }
+  );
+
+  // 8) EXPEDIENTE DE ARCO: escribe/actualiza el summary largo de un arco.
+  mcp.tool(
+    "escribir_expediente_arco",
+    "Escribe o reemplaza el expediente/summary completo de un arco narrativo (el documento largo de notas del arco). Util cuando el usuario te pide compilar el expediente del arco. CUIDADO: reemplaza el expediente anterior; usa get_arc primero si necesitas conservar contenido.",
+    {
+      arcId: z.string().describe("El id del arco (sale de get_story_overview)."),
+      expediente: z.string().min(1).describe("El texto completo del expediente del arco."),
+    },
+    async ({ arcId, expediente }) => {
+      const d = await loadData();
+      if (!d) return noData;
+      const arc = (d.storyArcs || []).find((a: any) => a.id === arcId);
+      if (!arc) return textResult(`No existe ningun arco con id "${arcId}".`);
+      await queueInboxItem("expediente_arco", { arcId, expediente });
+      return textResult(`Expediente encolado para el arco "${arc.name}". Se aplicara en la app en unos segundos (la app debe estar abierta).`);
+    }
+  );
+
+  // 9) BUSCAR: localizar nodos/personajes/lore por texto sin leerlo todo.
+  mcp.tool(
+    "buscar",
+    "Busca un texto (nombre de personaje, lugar, frase) en las escenas, personajes y lore del proyecto. Devuelve ids y fragmentos. Util para localizar el nodeId correcto antes de responder_modo_director o get_scene.",
+    { texto: z.string().min(2).describe("Texto a buscar (insensible a mayusculas).") },
+    async ({ texto }) => {
+      const d = await loadData();
+      if (!d) return noData;
+      const q = texto.toLowerCase();
+      const hits: any[] = [];
+      const scanNode = (node: any, arcName: string) => {
+        if (!node) return;
+        const name: string = node.name || "";
+        const idx = name.toLowerCase().indexOf(q);
+        if (idx >= 0) {
+          hits.push({
+            tipo: "escena",
+            arco: arcName,
+            nodeId: node.id,
+            fragmento: clamp(name.slice(Math.max(0, idx - 80), idx + 160), 260),
+            bloqueado: node.excludeFromContext || undefined,
+          });
+        }
+        (node.children || []).forEach((c: any) => scanNode(c, arcName));
+      };
+      for (const arc of d.storyArcs || []) scanNode(arc.rootNode, arc.name);
+      for (const c of d.characters || []) {
+        const hay = [c.name, ...(c.aliases || [])].some((s: string) => s?.toLowerCase().includes(q));
+        if (hay) hits.push({ tipo: "personaje", id: c.id, name: c.name });
+      }
+      for (const l of d.loreEntries || []) {
+        const content = `${l.name ?? l.title ?? ""} ${l.content ?? l.description ?? ""}`;
+        if (content.toLowerCase().includes(q)) hits.push({ tipo: "lore", id: l.id, name: l.name ?? l.title });
+      }
+      if (!hits.length) return textResult(`Sin resultados para "${texto}".`);
+      return textResult(withSizeGuard(pretty(hits.slice(0, 50)), "Demasiados resultados; afina la busqueda."));
+    }
+  );
+
   return mcp;
 }
 
@@ -338,6 +475,23 @@ async function startServer() {
   // Rutas API normales de la app
   app.get("/api/health", (_req, res) => {
     res.json({ status: "ok" });
+  });
+
+  // Bandeja de entrada de Claude: la app la consulta y confirma lo aplicado.
+  app.get("/api/claude/inbox", async (_req, res) => {
+    res.json({ items: await readInbox() });
+  });
+
+  app.post("/api/claude/inbox/ack", async (req, res) => {
+    try {
+      const ids: string[] = Array.isArray(req.body?.ids) ? req.body.ids : [];
+      const items = await readInbox();
+      await writeInbox(items.filter((i) => !ids.includes(i.id)));
+      res.json({ success: true });
+    } catch (e) {
+      console.error("Error en ack del inbox:", e);
+      res.status(500).json({ error: "Failed to ack inbox items" });
+    }
   });
 
   app.post("/api/syncPlan", async (req, res) => {
