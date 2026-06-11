@@ -18,9 +18,15 @@ FLUJO DE TRABAJO OBLIGATORIO:
 1. Al empezar una sesion, llama a get_story_overview para conocer el proyecto,
    los arcos y el indice de escenas (con sus ids).
 2. Usa buscar(texto) para localizar escenas, personajes o lore concretos.
-3. Antes de escribir sobre una escena, leela con get_scene(nodeId). Antes de
-   escribir sobre un personaje, consultalo con get_character(nombre).
-4. Consulta get_world_bible para reglas del mundo, escenarios y lore cuando
+3. Antes de escribir sobre una escena, leela con get_scene(nodeId). Eso te da
+   el resumen y cuantos mensajes hay en su chat del director.
+4. IMPORTANTE: para leer la conversacion previa del modo director de una escena,
+   usa leer_chat_director(nodeId) — esta paginado (trae los ultimos mensajes;
+   usa 'desde' para ir hacia atras). get_scene NO trae el chat completo, solo el
+   ultimo mensaje, porque puede pesar mas de 100KB. Lee el chat antes de continuar
+   una escena para no perder el hilo. (leer_chat_cowriter para el chat co-escritor.)
+5. Antes de escribir sobre un personaje, consultalo con get_character(nombre).
+6. Consulta get_world_bible para reglas del mundo, escenarios y lore cuando
    la coherencia lo requiera. Usa get_arc(arcId) para leer expedientes.
 
 HERRAMIENTAS DE ESCRITURA (aparecen EN VIVO en mi app):

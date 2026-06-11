@@ -311,15 +311,78 @@ function createMcpServer(): McpServer {
       if (!d) return noData;
       const node = findNode(d.storyArcs || [], nodeId);
       if (!node) return textResult(`No encontre ninguna escena con id "${nodeId}".`);
-      const { children, ...rest } = node;
+      // Sacamos los chats del volcado: pueden ser enormes y desbordar la escena.
+      // Se leen aparte con leer_chat_director / leer_chat_cowriter.
+      const { children, directorChatHistory, chatHistory, ...rest } = node;
+      const lastOf = (arr: any[]) =>
+        arr && arr.length ? clamp(arr[arr.length - 1]?.text, 300) : undefined;
       const scene = {
         ...stripImages(rest),
+        chatDelDirector: {
+          numMensajes: (directorChatHistory || []).length,
+          ultimoMensaje: lastOf(directorChatHistory),
+          nota: (directorChatHistory || []).length
+            ? "Usa leer_chat_director(nodeId) para leer la conversacion completa."
+            : undefined,
+        },
+        chatCoWriter: {
+          numMensajes: (chatHistory || []).length,
+          ultimoMensaje: lastOf(chatHistory),
+          nota: (chatHistory || []).length
+            ? "Usa leer_chat_cowriter(nodeId) para leer la conversacion completa."
+            : undefined,
+        },
         numHijos: (children || []).length,
         idsHijos: (children || []).map((c: any) => ({ id: c.id, name: c.name })),
       };
       return textResult(withSizeGuard(pretty(scene), "Escena muy extensa."));
     }
   );
+
+  // 5b) LEER CHATS DE UN NODO (paginado). El director chat puede pesar >100KB,
+  // asi que se lee por tramos. Por defecto devuelve los mensajes mas recientes.
+  const makeChatReader = (
+    toolName: string,
+    field: "directorChatHistory" | "chatHistory",
+    etiqueta: string
+  ) =>
+    mcp.tool(
+      toolName,
+      `Lee el ${etiqueta} de una escena (nodo), paginado. Por defecto devuelve los ultimos mensajes (los mas recientes). Usa 'desde' para paginar hacia atras. Cada mensaje trae su indice para poder pedir mas contexto.`,
+      {
+        nodeId: z.string().describe("El id del nodo/escena."),
+        cantidad: z.number().int().positive().max(40).optional().describe("Cuantos mensajes traer (por defecto 15)."),
+        desde: z.number().int().min(0).optional().describe("Indice inicial (0 = el mas antiguo). Si se omite, trae los ultimos 'cantidad'."),
+      },
+      async ({ nodeId, cantidad = 15, desde }: { nodeId: string; cantidad?: number; desde?: number }) => {
+        const d = await loadData();
+        if (!d) return noData;
+        const node = findNode(d.storyArcs || [], nodeId);
+        if (!node) return textResult(`No encontre ninguna escena con id "${nodeId}".`);
+        const hist: any[] = (node as any)[field] || [];
+        const total = hist.length;
+        if (total === 0) return textResult(`La escena "${clamp(node.name, 60)}" no tiene ${etiqueta} todavia.`);
+        const start = desde === undefined ? Math.max(0, total - cantidad) : Math.min(desde, total);
+        const slice = hist.slice(start, start + cantidad).map((m: any, i: number) => ({
+          indice: start + i,
+          role: m.role,
+          text: clamp(m.text, 6000),
+        }));
+        const out = {
+          nodeId,
+          escena: clamp(node.name, 60),
+          totalMensajes: total,
+          mostrando: `${start}..${start + slice.length - 1}`,
+          hayMasAntiguos: start > 0,
+          hayMasRecientes: start + slice.length < total,
+          mensajes: slice,
+        };
+        return textResult(withSizeGuard(pretty(out), "Pide menos 'cantidad' o usa 'desde' para paginar."));
+      }
+    );
+
+  makeChatReader("leer_chat_director", "directorChatHistory", "chat del modo director");
+  makeChatReader("leer_chat_cowriter", "chatHistory", "chat del co-escritor");
 
   // ============ HERRAMIENTAS DE ESCRITURA (via bandeja de entrada) ============
   // Estas herramientas NO modifican projectData.json directamente (la app web es
