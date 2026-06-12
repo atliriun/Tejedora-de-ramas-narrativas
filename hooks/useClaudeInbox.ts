@@ -16,6 +16,11 @@ interface ClaudeInboxItem {
 
 const POLL_INTERVAL_MS = 4000;
 
+// La bandeja vive en el servidor MCP local. En AI Studio / nube no existe:
+// no sondeamos para no spamear fetches fallidos ni cargar la pestania.
+const isLocalServer = typeof window !== 'undefined'
+    && /^(localhost|127\.0\.0\.1|\[::1\])$/.test(window.location.hostname);
+
 // Busca un nodo por id en TODOS los arcos (no solo el activo) y lo modifica in-place.
 const modifyNodeAcrossArcs = (data: ProjectData, nodeId: string, action: (n: StoryNodeData) => void): boolean => {
     for (const arc of data.storyArcs || []) {
@@ -69,7 +74,7 @@ export const useClaudeInbox = (
     const isFetching = useRef(false);
 
     useEffect(() => {
-        if (!isLoaded) return;
+        if (!isLocalServer || !isLoaded) return;
         let cancelled = false;
 
         const tick = async () => {

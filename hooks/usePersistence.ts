@@ -3,6 +3,12 @@ import { useEffect } from 'react';
 import { ProjectData } from '../types';
 import { set } from 'idb-keyval';
 
+// El servidor MCP (syncPlan) solo existe cuando corres la app en local con el
+// .bat. En AI Studio / nube no hay servidor: evitamos POSTs de ~20MB que fallan
+// en bucle y cargan la pestania.
+const isLocalServer = typeof window !== 'undefined'
+    && /^(localhost|127\.0\.0\.1|\[::1\])$/.test(window.location.hostname);
+
 export const usePersistence = (projectData: ProjectData | null, isLoaded: boolean) => {
     useEffect(() => {
         if (!isLoaded || !projectData) return;
@@ -36,9 +42,9 @@ export const usePersistence = (projectData: ProjectData | null, isLoaded: boolea
     useEffect(() => { if (isLoaded && projectData) try { set('contextPresets', projectData.contextPresets).catch(e => console.error(e)); } catch (e) { console.error("Persistence Error (contextPresets):", e); } }, [isLoaded, projectData?.contextPresets]);
     useEffect(() => { if (isLoaded && projectData) try { set('flags', projectData.flags).catch(e => console.error(e)); } catch (e) { console.error("Persistence Error (flags):", e); } }, [isLoaded, projectData?.flags]);
 
-    // Sync to backend for MCP
+    // Sync to backend for MCP (solo en local; en AI Studio/nube no hay servidor)
     useEffect(() => {
-        if (!isLoaded || !projectData) return;
+        if (!isLocalServer || !isLoaded || !projectData) return;
         const timeoutId = setTimeout(() => {
             fetch('/api/syncPlan', {
                 method: 'POST',
